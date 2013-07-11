@@ -19,7 +19,7 @@
  * http://github.com/phated/grunt-enyo/blob/master/LICENSE-Apache
  */
 
- var fs = require('fs');
+var fs = require('fs');
 
 // Basic template description.
 exports.description = 'Scaffold an EnyoJS Bootplate project';
@@ -32,6 +32,7 @@ exports.warnOn = '*';
 
 // The actual init template.
 exports.template = function(grunt, init, done) {
+  'use strict';
 
   grunt.helper('prompt', {type: 'enyo'}, [
     // Prompt for these values.
@@ -46,16 +47,25 @@ exports.template = function(grunt, init, done) {
     grunt.helper('prompt_for', 'author_email'),
     grunt.helper('prompt_for', 'author_url'),
     {
-      name: 'enyo_libraries',
+      name: 'enyo_dependencies',
       message: 'Enyo libraries',
       default: 'layout onyx',
       warning: 'Space separated list of enyo libraries dependencies'
     }
   ], function(err, props) {
-    // Make an array out of the enyo_libraries string
+    // Scrub name of hyphens and underscores
+    // A little heavy handed but don't want dashes at beginning because that is difficult to deal with in templates
+    props.name = grunt.utils._.camelize(props.name);
+
+    // Make an array out of the enyo_dependencies string
     var words = grunt.utils._.words;
     var clean = grunt.utils._.clean;
-    props.enyo_libraries = words(clean(props.enyo_libraries));
+    var compact = grunt.utils._.compact;
+    props.enyo_dependencies = compact(words(clean(props.enyo_dependencies))) || [];
+    var component_deps = {};
+    props.enyo_dependencies.forEach(function(dependency){
+      component_deps[dependency] = "*";
+    });
 
     // Files to copy (and process).
     var files = init.filesToCopy(props);
@@ -64,24 +74,31 @@ exports.template = function(grunt, init, done) {
     init.addLicenseFiles(files, props.licenses);
 
     // Actually copy (and process) files.
-    init.copyAndProcess(files, props, {noProcess: ['*.png', 'assets/*', 'api/', 'assets/', 'enyo/', 'lib/', 'tools/']});
+    init.copyAndProcess(files, props, {
+      noProcess: ['*.png', 'assets/*', 'api/', 'assets/', 'enyo/', 'tools/']
+    });
 
     // Make the shellscripts executable
     fs.chmodSync(init.destpath('tools/minify.sh'), '755');
     fs.chmodSync(init.destpath('enyo/tools/minify.sh'), '755');
+    fs.chmodSync(init.destpath('enyo/minify/minify.sh'), '755');
 
     // Generate package.json file, used by npm and grunt.
     init.writePackageJSON('package.json', {
       name: props.name,
       version: props.version,
       npm_test: 'grunt',
-      node_version: '>= 0.6.0',
-      enyo_libraries: props.enyo_libraries
-    }, function(pkg, props){
-      pkg.enyo_template = 'bootplate';
-      pkg.enyo_libraries = props.enyo_libraries;
-      return pkg;
+      node_version: '>= 0.6.0'
     });
+
+    init.writePackageJSON('component.json', {
+      name: props.name,
+      version: props.version,
+      dependencies: component_deps
+    });
+
+    // Install the packages specified in component.json
+    grunt.task.run('install');
 
     // All done!
     done();
